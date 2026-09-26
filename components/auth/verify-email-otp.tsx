@@ -15,12 +15,15 @@ import { Label } from "@/components/ui/label"
 
 type VerifyEmailOtpProps = {
     email: string
+    /** Used to sign in if verification did not establish a session. */
+    password?: string
     onVerified: () => void
     onBack: () => void
 }
 
 export function VerifyEmailOtp({
     email,
+    password,
     onVerified,
     onBack,
 }: VerifyEmailOtpProps) {
@@ -38,6 +41,21 @@ export function VerifyEmailOtp({
         defaultValues: { otp: "" },
     })
 
+    /**
+     * Verification signs the user in, but only if the server cookie lands. If it
+     * did not, fall back to a normal sign-in so the caller can enter the app.
+     */
+    async function ensureSignedIn(token?: string | null) {
+        if (token) return true
+        const { data: session } = await authClient.getSession({
+            query: { disableCookieCache: true },
+        })
+        if (session?.user) return true
+        if (!password) return false
+        const { error } = await authClient.signIn.email({ email, password })
+        return !error
+    }
+
     async function onSubmit(values: VerifyEmailOtpFormValues) {
         setResendMessage(null)
         const { data, error } = await authClient.emailOtp.verifyEmail({
@@ -50,13 +68,20 @@ export function VerifyEmailOtp({
             })
             return
         }
-        if (data?.user?.emailVerified || data?.status) {
-            onVerified()
+        if (!data?.user?.emailVerified && !data?.status) {
+            setError("root", {
+                message: "Could not verify that code. Try again.",
+            })
             return
         }
-        setError("root", {
-            message: "Could not verify that code. Try again.",
-        })
+        if (!(await ensureSignedIn(data?.token))) {
+            setError("root", {
+                message:
+                    "Email verified, but we could not sign you in. Log in to continue.",
+            })
+            return
+        }
+        onVerified()
     }
 
     async function onResend() {

@@ -127,6 +127,10 @@ export const auth = betterAuth({
     emailVerification: {
         sendOnSignUp: !skipVerification,
         sendOnSignIn: !skipVerification,
+        // Sign-up returns no session while verification is required, so the OTP
+        // step has to create one. Without this the user verifies and lands on
+        // home signed out.
+        autoSignInAfterVerification: true,
     },
     socialProviders: {
         ...(googleClientId && googleClientSecret
