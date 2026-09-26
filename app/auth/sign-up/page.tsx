@@ -20,7 +20,10 @@ import { Label } from "@/components/ui/label"
 export default function SignUpPage() {
     const router = useRouter()
     const skipVerification = isVerificationDisabled()
-    const [pendingEmail, setPendingEmail] = React.useState<string | null>(null)
+    const [pending, setPending] = React.useState<{
+        email: string
+        password: string
+    } | null>(null)
     const [agreed, setAgreed] = React.useState(false)
     const {
         register,
@@ -72,20 +75,21 @@ export default function SignUpPage() {
 
         // Verify-at-sign-up: OTP is emailed; stay on this page until verified.
         if (data?.user && !data.user.emailVerified) {
-            setPendingEmail(values.email)
+            setPending({ email: values.email, password: values.password })
             return
         }
 
         enterApp()
     }
 
-    if (pendingEmail && !skipVerification) {
+    if (pending && !skipVerification) {
         return (
             <VerifyEmailOtp
-                email={pendingEmail}
+                email={pending.email}
+                password={pending.password}
                 onVerified={enterApp}
                 onBack={() => {
-                    setPendingEmail(null)
+                    setPending(null)
                     reset({ name: "", email: "", password: "" })
                 }}
             />
