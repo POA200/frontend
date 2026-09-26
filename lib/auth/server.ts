@@ -151,7 +151,7 @@ export const auth = betterAuth({
                     type === "forget-password"
                         ? `Your password reset code is ${otp}. It expires in 5 minutes.`
                         : `Your verification code is ${otp}. It expires in 5 minutes.`
-                queueEmail(() => sendAuthEmail({ to: email, subject, text }))
+                await sendAuthEmail({ to: email, subject, text })
             },
         }),
         jwt({
