@@ -29,7 +29,8 @@ export function MatchResult({
     const { toast } = useNotificationActions()
     const claimStarted = React.useRef(false)
     const refundStarted = React.useRef(false)
-    const isDraw = finished.winners.length === 0
+    const isVoid = finished.voided === true
+    const isDraw = !isVoid && finished.winners.length === 0
     const refundClaims = React.useMemo(
         () =>
             (finished.claims ?? []).filter((claim) => claim.role === "refund"),
@@ -156,69 +157,82 @@ export function MatchResult({
                 </span>
                 <div>
                     <h2 className="font-display text-xl">
-                        {isDraw ? "Draw" : "Match complete"}
+                        {isVoid
+                            ? "Match voided"
+                            : isDraw
+                              ? "Draw"
+                              : "Match complete"}
                     </h2>
                     <p className="text-sm text-muted-foreground">
-                        {isDraw
-                            ? "Paid entries are returned in full."
-                            : "Season points and stats have been updated."}
+                        {isVoid
+                            ? "The match stopped before a result. Entry fees are back in your wallet."
+                            : isDraw
+                              ? "Paid entries are returned in full."
+                              : "Season points and stats have been updated."}
                     </p>
                 </div>
             </div>
 
-            <ol className="divide-y divide-border/50 overflow-hidden rounded-xl border border-border/60 bg-background/40">
-                {standings.map((player, index) => {
-                    const rank = player.rank ?? index + 1
-                    // Paid matches show the claim slice (70/30 or 50/30/20).
-                    // Free / no-claim matches still use per-player prizeMicro.
-                    const claimForPlayer = finished.claims?.find(
-                        (c) =>
-                            c.userId === player.userId &&
-                            c.amountMicro > 0 &&
-                            (isDraw ? c.role === "refund" : c.role !== "refund")
-                    )
-                    const wonMicro =
-                        finished.needsOnChainClaim ||
-                        finished.needsOnChainRefund ||
-                        (finished.claims?.length ?? 0) > 0
-                            ? (claimForPlayer?.amountMicro ?? 0)
-                            : (player.prizeMicro ?? 0)
+            {isVoid ? null : (
+                <ol className="divide-y divide-border/50 overflow-hidden rounded-xl border border-border/60 bg-background/40">
+                    {standings.map((player, index) => {
+                        const rank = player.rank ?? index + 1
+                        // Paid matches show the claim slice (70/30 or 50/30/20).
+                        // Free / no-claim matches still use per-player prizeMicro.
+                        const claimForPlayer = finished.claims?.find(
+                            (c) =>
+                                c.userId === player.userId &&
+                                c.amountMicro > 0 &&
+                                (isDraw
+                                    ? c.role === "refund"
+                                    : c.role !== "refund")
+                        )
+                        const wonMicro =
+                            finished.needsOnChainClaim ||
+                            finished.needsOnChainRefund ||
+                            (finished.claims?.length ?? 0) > 0
+                                ? (claimForPlayer?.amountMicro ?? 0)
+                                : (player.prizeMicro ?? 0)
 
-                    return (
-                        <li
-                            key={player.userId}
-                            className={cn(
-                                "flex items-center gap-3 px-4 py-3",
-                                rank === 1 && !isDraw && "bg-gold/10"
-                            )}
-                        >
-                            <span
+                        return (
+                            <li
+                                key={player.userId}
                                 className={cn(
-                                    "tnum w-8 font-display text-sm",
-                                    rank === 1
-                                        ? "text-gold"
-                                        : "text-muted-foreground"
+                                    "flex items-center gap-3 px-4 py-3",
+                                    rank === 1 &&
+                                        !isDraw &&
+                                        !isVoid &&
+                                        "bg-gold/10"
                                 )}
                             >
-                                {ordinal(rank)}
-                            </span>
-                            <UserChip user={player} size="xs" />
-                            <span className="ml-auto text-right">
-                                {player.warsPoint != null ? (
-                                    <span className="block text-xs text-muted-foreground">
-                                        +{player.warsPoint} pts
+                                <span
+                                    className={cn(
+                                        "tnum w-8 font-display text-sm",
+                                        rank === 1
+                                            ? "text-gold"
+                                            : "text-muted-foreground"
+                                    )}
+                                >
+                                    {ordinal(rank)}
+                                </span>
+                                <UserChip user={player} size="xs" />
+                                <span className="ml-auto text-right">
+                                    {player.warsPoint != null ? (
+                                        <span className="block text-xs text-muted-foreground">
+                                            +{player.warsPoint} pts
+                                        </span>
+                                    ) : null}
+                                </span>
+                                {wonMicro > 0 ? (
+                                    <span className="tnum shrink-0 font-display text-sm text-gold">
+                                        {formatUsdc(wonMicro, { sign: true })}
                                     </span>
                                 ) : null}
-                            </span>
-                            {wonMicro > 0 ? (
-                                <span className="tnum shrink-0 font-display text-sm text-gold">
-                                    {formatUsdc(wonMicro, { sign: true })}
-                                </span>
-                            ) : null}
-                        </li>
-                    )
-                })}
-            </ol>
+                            </li>
+                        )
+                    })}
+                </ol>
+            )}
 
             <div className="flex flex-wrap gap-2">
                 <ButtonLink href="/lobbies" variant="outline">
