@@ -41,7 +41,7 @@ function cronAuthorized(request: Request): boolean {
     const internal = request.headers.get("x-internal-secret")
     return Boolean(
         (bearer && secrets.includes(bearer)) ||
-            (internal && secrets.includes(internal))
+        (internal && secrets.includes(internal))
     )
 }
 
@@ -67,25 +67,58 @@ async function internalFetch(path: string, init?: RequestInit) {
 }
 
 /**
- * Refund + expire waiting lobbies older than 24h.
- * Free lobbies are also purged by the Rust janitor; this route handles paid seats.
+ * Stale-lobby janitor.
+ *
+ * - Waiting lobbies older than 24h (`/admin/lobbies/stale`) are refunded seat by
+ *   seat (on-chain kick), then deleted.
+ * - Live lobbies whose match actor died with the server
+ *   (`/admin/lobbies/stale-live`) are refunded the same way, then finished with a
+ *   `voided` payload instead of being deleted, so the room can explain itself.
+ *
+ * Free lobbies are also purged by the Rust janitor; this route owns the paid work.
  */
 export async function GET(request: Request) {
     if (!cronAuthorized(request)) {
         return NextResponse.json({ error: "unauthorized" }, { status: 401 })
     }
 
-    const stale = (await internalFetch("/admin/lobbies/stale")) as StaleLobby[]
-    const results: Array<{
-        lobbyId: string
-        path: string
-        ok: boolean
-        error?: string
-    }> = []
+    const waiting = await sweep("/admin/lobbies/stale", "expire")
+    const live = await sweep("/admin/lobbies/stale-live", "void")
+
+    const results = [...waiting, ...live]
+    const summary = {
+        scanned: results.length,
+        expired: waiting.filter((r) => r.ok).length,
+        voided: live.filter((r) => r.ok).length,
+        results,
+    }
+    console.info("[lobby-ttl]", JSON.stringify(summary))
+    return NextResponse.json(summary)
+}
+
+type SweepResult = {
+    lobbyId: string
+    path: string
+    ok: boolean
+    error?: string
+}
+
+/**
+ * Refund every seat of each stale lobby, then close it out on the backend.
+ * A lobby that fails here is retried on the next run — the backend drops each
+ * seat as it is confirmed, so a retry never kicks an already-refunded seat.
+ */
+async function sweep(
+    listPath: string,
+    closeAction: "expire" | "void"
+): Promise<SweepResult[]> {
+    const stale = (await internalFetch(listPath)) as StaleLobby[]
+    const results: SweepResult[] = []
 
     for (const item of stale) {
         try {
-            // Every on-chain seat needs a kick (including sponsored guests with paid=0).
+            // Every on-chain seat needs a kick (including sponsored guests, whose
+            // seat left the vault map with a zero amount).
             for (const seat of item.seats) {
                 let vaultTxid: string | undefined
                 if (item.lobby.entryAmountMicro > 0) {
@@ -106,7 +139,7 @@ export async function GET(request: Request) {
                     })
                 }
                 await internalFetch(
-                    `/admin/lobbies/${item.lobby.id}/expire-seat`,
+                    `/admin/lobbies/${item.lobby.id}/${closeAction}-seat`,
                     {
                         method: "POST",
                         body: JSON.stringify({
@@ -118,10 +151,10 @@ export async function GET(request: Request) {
                 )
             }
 
-            await internalFetch(`/admin/lobbies/${item.lobby.id}/expire`, {
-                method: "POST",
-                body: "{}",
-            })
+            await internalFetch(
+                `/admin/lobbies/${item.lobby.id}/${closeAction}`,
+                { method: "POST", body: "{}" }
+            )
             results.push({
                 lobbyId: item.lobby.id,
                 path: item.lobby.path,
@@ -132,18 +165,12 @@ export async function GET(request: Request) {
                 lobbyId: item.lobby.id,
                 path: item.lobby.path,
                 ok: false,
-                error: error instanceof Error ? error.message : "expire failed",
+                error: error instanceof Error ? error.message : "sweep failed",
             })
         }
     }
 
-    const summary = {
-        scanned: stale.length,
-        expired: results.filter((r) => r.ok).length,
-        results,
-    }
-    console.info("[lobby-ttl]", JSON.stringify(summary))
-    return NextResponse.json(summary)
+    return results
 }
 
 export async function POST(request: Request) {

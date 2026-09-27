@@ -129,7 +129,12 @@ export type LobbyPresencePayload = {
 }
 
 export type LobbyNoticePayload =
-    | { type: "playerJoined"; userId: string; username?: string | null; displayName?: string | null }
+    | {
+          type: "playerJoined"
+          userId: string
+          username?: string | null
+          displayName?: string | null
+      }
     | { type: "playerLeft"; userId: string }
     | { type: "playerKicked"; userId: string; byUserId: string }
     | { type: "playerReady"; userId: string; ready: boolean }
@@ -146,13 +151,16 @@ export type FinishedStanding = {
 export type LobbyFinishedPayload = {
     lobbyId: string
     lobbyPath: string
-    matchId: string
+    /** Absent on a voided lobby — nothing was played, so there is no match row. */
+    matchId?: string
     winners: string[]
     needsOnChainClaim: boolean
     needsOnChainRefund?: boolean
     claims: VaultClaimIntent[]
     /** Ordered final standings; present on new finishes, optional on older Redis payloads. */
     standings?: FinishedStanding[]
+    /** Match ended without a result (server restarted). Entries were refunded. */
+    voided?: boolean
 }
 
 export type LobbyPayoutPayload = {
